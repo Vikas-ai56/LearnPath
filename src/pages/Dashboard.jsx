@@ -65,46 +65,72 @@ export default function Dashboard() {
     }
   };
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const token = localStorage.getItem('token');
+  // Map single-letter VARK codes to full names for display
+  const mapLearningStyle = (style) => {
+    if (!style) return null;
+    const styleMapping = {
+      'V': 'Visual',
+      'A': 'Aural',
+      'R': 'ReadWrite',
+      'K': 'Kinesthetic',
+      'Visual': 'Visual',
+      'Aural': 'Aural',
+      'Auditory': 'Aural',
+      'ReadWrite': 'ReadWrite',
+      'Kinesthetic': 'Kinesthetic',
+      // Handle multimodal (first letter wins)
+      'VA': 'Visual',
+      'VR': 'Visual',
+      'VK': 'Visual',
+      'AR': 'Aural',
+      'AK': 'Aural',
+      'RK': 'ReadWrite'
+    };
+    return styleMapping[style] || style;
+  };
 
-        // Fetch user profile using /auth/me endpoint
-        const profileRes = await fetch(`${API_BASE_URL}/auth/me`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+  useEffect(() => {
+    const loadDashboard = async () => {
+      try {
+        // First, use user data from AuthContext (already loaded)
+        let userLearningStyle = user?.learningStyle;
+        console.log('🔍 Dashboard - User from AuthContext:', {
+          userId: user?.id,
+          userName: user?.name,
+          learningStyle: userLearningStyle
         });
-        
-        if (!profileRes.ok) {
-          console.error('Failed to fetch profile');
-          setLoading(false);
-          return;
+
+        // Try to get fresh data from API, but don't fail if it doesn't work
+        const token = localStorage.getItem('token');
+        if (token) {
+          try {
+            const profileRes = await fetch(`${API_BASE_URL}/auth/me`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (profileRes.ok) {
+              const profileData = await profileRes.json();
+              const userProfile = profileData.user;
+              console.log('🔍 Dashboard - User Profile from API:', {
+                userId: userProfile.id,
+                userName: userProfile.name,
+                learningStyle: userProfile.learningStyle
+              });
+              setProfile(userProfile);
+              // Use API data if available
+              if (userProfile.learningStyle) {
+                userLearningStyle = userProfile.learningStyle;
+              }
+            }
+          } catch (apiErr) {
+            console.log('API call failed, using AuthContext data:', apiErr.message);
+          }
         }
-        
-        const profileData = await profileRes.json();
-        const userProfile = profileData.user;
-        console.log('🔍 Dashboard - User Profile Loaded:', {
-          userId: userProfile.id,
-          userName: userProfile.name,
-          userEmail: userProfile.email,
-          learningStyle: userProfile.learningStyle
-        });
-        setProfile(userProfile);
-        
-        // Map single-letter VARK codes to full names for display
-        const styleMapping = {
-          'V': 'Visual',
-          'A': 'Aural',
-          'R': 'ReadWrite',
-          'K': 'Kinesthetic',
-          'Visual': 'Visual',
-          'Aural': 'Aural',
-          'ReadWrite': 'ReadWrite',
-          'Kinesthetic': 'Kinesthetic'
-        };
-        const mappedStyle = userProfile.learningStyle ? styleMapping[userProfile.learningStyle] || userProfile.learningStyle : null;
+
+        // Map and set learning style
+        const mappedStyle = mapLearningStyle(userLearningStyle);
         setSelectedLearningStyle(mappedStyle);
-        console.log('✅ Dashboard - Learning Style Set:', mappedStyle);
+        console.log('✅ Dashboard - Learning Style Set:', mappedStyle, '(from:', userLearningStyle, ')');
 
         // Load content from local curriculum files
         const curriculumData = [
@@ -120,15 +146,16 @@ export default function Dashboard() {
         curriculumData.forEach(({ curriculum, course }) => {
           if (curriculum && curriculum.nodes) {
             curriculum.nodes.forEach(node => {
-              // Extract videos as content items
+              // Extract videos as content items (Visual + Auditory learners)
               if (node.videos) {
                 node.videos.forEach(video => {
                   const item = {
                     id: `${node.id}-video-${video.title}`,
                     title: video.title,
-                    type: 'video',
+                    type: 'video',  // Matches Visual, Auditory
                     url: video.url,
                     course,
+                    description: `${node.label} - ${video.duration || 'Video'}`,
                     topic: node.label,
                     duration: video.duration
                   };
@@ -137,24 +164,47 @@ export default function Dashboard() {
                   grouped[course].push(item);
                 });
               }
-              // Add topic as a reading item
-              const readingItem = {
-                id: `${node.id}-reading`,
+              
+              // Add topic as a text item (ReadWrite learners)
+              const textItem = {
+                id: `${node.id}-text`,
                 title: node.label,
-                type: 'reading',
+                type: 'text',  // Matches ReadWrite preference
                 description: node.description,
+                url: `/subject/${course}#${node.id}`,
                 course,
                 topics: node.topics
               };
-              allContentItems.push(readingItem);
+              allContentItems.push(textItem);
               if (!grouped[course]) grouped[course] = [];
-              grouped[course].push(readingItem);
+              grouped[course].push(textItem);
+
+              // Add exercises/coding challenges (Kinesthetic learners)
+              if (node.exercises || node.codingChallenges) {
+                const exerciseItem = {
+                  id: `${node.id}-exercise`,
+                  title: `${node.label} - Practice`,
+                  type: 'exercise',  // Matches Kinesthetic preference
+                  description: `Hands-on practice for ${node.label}`,
+                  url: `/subject/${course}#${node.id}`,
+                  course,
+                  topic: node.label
+                };
+                allContentItems.push(exerciseItem);
+                if (!grouped[course]) grouped[course] = [];
+                grouped[course].push(exerciseItem);
+              }
             });
           }
         });
 
         setAllContent(allContentItems);
         setContentBySubject(grouped);
+        console.log('📚 Dashboard - Content loaded:', {
+          totalItems: allContentItems.length,
+          subjects: Object.keys(grouped),
+          itemsPerSubject: Object.fromEntries(Object.entries(grouped).map(([k, v]) => [k, v.length]))
+        });
 
         setLoading(false);
       } catch (error) {
@@ -163,8 +213,8 @@ export default function Dashboard() {
       }
     };
 
-    fetchData();
-  }, []);
+    loadDashboard();
+  }, [user]);
 
   if (loading) {
     return (
@@ -277,7 +327,7 @@ export default function Dashboard() {
             <Award className="w-6 h-6" />
             <span className="text-lg font-medium">Your Learning Style:</span>
             <span className="px-4 py-2 bg-white/20 backdrop-blur rounded-full font-semibold">
-              {selectedLearningStyle || profile?.learningStyle || 'Not Set'}
+              {selectedLearningStyle || mapLearningStyle(user?.learningStyle) || 'Not Set'}
             </span>
           </div>
         </div>
@@ -286,7 +336,7 @@ export default function Dashboard() {
       {/* Learning Style Selector */}
       <div className="bg-white border-b border-slate-200 px-6 py-6">
         <div className="max-w-7xl mx-auto">
-          {!selectedLearningStyle && !profile?.learningStyle && (
+          {!selectedLearningStyle && !user?.learningStyle && (
             <div className="mb-6 bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-400 rounded-lg p-6">
               <div className="flex items-start gap-4">
                 <div className="bg-yellow-400 rounded-full p-3">
@@ -310,7 +360,7 @@ export default function Dashboard() {
               </div>
             </div>
           )}
-          {profile?.learningStyle && selectedLearningStyle && learningStyleInfo[selectedLearningStyle] && (
+          {selectedLearningStyle && learningStyleInfo[selectedLearningStyle] && (
             <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-l-4 border-blue-500 p-5 rounded-lg">
               <div className="flex items-start gap-3">
                 <div className="bg-blue-500 rounded-full p-2">

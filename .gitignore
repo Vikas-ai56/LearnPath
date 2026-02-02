@@ -30,3 +30,4 @@ Thumbs.db
 # Database files (local only)
 *.db
 !server/chinook.db
+!public/chinook.db

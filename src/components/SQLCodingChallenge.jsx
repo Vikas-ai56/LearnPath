@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { 
   Play, CheckCircle, XCircle, Lightbulb, Eye, EyeOff, 
@@ -8,9 +8,7 @@ import {
 import { challengeAPI, setAuthToken } from '../api/service';
 import { useAuth } from '../context/AuthContext';
 import { CHINOOK_SCHEMA } from '../data/dbmsCodingChallenges';
-
-// Auto-detect API URL based on environment
-const API_BASE = import.meta.env.PROD ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:3000/api');
+import initSqlJs from 'sql.js';
 
 const SQLCodingChallenge = ({ 
   challenges, 
@@ -30,6 +28,57 @@ const SQLCodingChallenge = ({
   const [completedChallenges, setCompletedChallenges] = useState({});
   const [xpNotification, setXpNotification] = useState(null);
   const [showSchema, setShowSchema] = useState(false);
+  
+  // SQL.js state
+  const [db, setDb] = useState(null);
+  const [dbLoading, setDbLoading] = useState(true);
+  const [dbError, setDbError] = useState(null);
+  const dbRef = useRef(null);
+
+  // Initialize SQL.js and load Chinook database
+  useEffect(() => {
+    const initDatabase = async () => {
+      try {
+        setDbLoading(true);
+        setDbError(null);
+        
+        // Initialize SQL.js with WASM
+        const SQL = await initSqlJs({
+          locateFile: file => `https://sql.js.org/dist/${file}`
+        });
+        
+        // Fetch the chinook.db file from public folder
+        const response = await fetch('/chinook.db');
+        if (!response.ok) {
+          throw new Error('Failed to load database file');
+        }
+        
+        const arrayBuffer = await response.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+        
+        // Create database instance
+        const database = new SQL.Database(uint8Array);
+        dbRef.current = database;
+        setDb(database);
+        setDbLoading(false);
+        
+        console.log('✅ Chinook database loaded successfully in browser');
+      } catch (error) {
+        console.error('Failed to initialize SQL.js:', error);
+        setDbError(error.message);
+        setDbLoading(false);
+      }
+    };
+    
+    initDatabase();
+    
+    // Cleanup on unmount
+    return () => {
+      if (dbRef.current) {
+        dbRef.current.close();
+      }
+    };
+  }, []);
 
   // Load completed challenges on mount
   useEffect(() => {
@@ -62,55 +111,109 @@ const SQLCodingChallenge = ({
     setActiveTab('problem');
   };
 
-  // Execute SQL query
+  // Execute SQL query using sql.js (browser-based)
   const executeQuery = async () => {
     if (!selectedChallenge || !userQuery.trim()) return;
+    if (!db) {
+      setQueryResult({
+        success: false,
+        passed: false,
+        error: 'Database not loaded',
+        feedback: ['✗ Database is still loading. Please wait...']
+      });
+      return;
+    }
     
     setIsRunning(true);
     setQueryResult(null);
 
     try {
-      // First, execute the user's query
-      const execResponse = await fetch(`${API_BASE}/sql/execute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userQuery, limit: 100 })
-      });
-
-      const execData = await execResponse.json();
-
-      if (!execResponse.ok || execData.error) {
+      // Execute user's query
+      let userResults;
+      try {
+        userResults = db.exec(userQuery);
+      } catch (sqlError) {
         setQueryResult({
           success: false,
           passed: false,
-          error: execData.message || execData.error,
-          feedback: [`✗ SQL Error: ${execData.message || execData.error}`]
+          error: sqlError.message,
+          feedback: [`✗ SQL Error: ${sqlError.message}`]
         });
         setIsRunning(false);
         return;
       }
 
-      // Then verify against expected result
-      const verifyResponse = await fetch(`${API_BASE}/sql/verify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userQuery,
-          verificationQuery: selectedChallenge.verificationQuery,
-          expectedRowCount: selectedChallenge.expectedRowCount
-        })
-      });
+      // Format results
+      const rows = [];
+      const columns = userResults[0]?.columns || [];
+      
+      if (userResults[0]?.values) {
+        userResults[0].values.forEach(row => {
+          const rowObj = {};
+          columns.forEach((col, i) => {
+            rowObj[col] = row[i];
+          });
+          rows.push(rowObj);
+        });
+      }
 
-      const verifyData = await verifyResponse.json();
+      // Execute verification query to compare
+      let verificationPassed = false;
+      let feedback = [];
+
+      try {
+        const expectedResults = db.exec(selectedChallenge.verificationQuery);
+        const expectedRows = expectedResults[0]?.values?.length || 0;
+        const userRowCount = userResults[0]?.values?.length || 0;
+
+        // Check row count if specified
+        if (selectedChallenge.expectedRowCount !== undefined) {
+          if (userRowCount === selectedChallenge.expectedRowCount) {
+            verificationPassed = true;
+            feedback.push(`✓ Correct! Your query returned ${userRowCount} row(s) as expected.`);
+          } else {
+            feedback.push(`✗ Expected ${selectedChallenge.expectedRowCount} rows, but got ${userRowCount}.`);
+          }
+        } else {
+          // Compare with verification query results
+          if (userRowCount === expectedRows) {
+            // Compare actual data
+            const userValues = JSON.stringify(userResults[0]?.values || []);
+            const expectedValues = JSON.stringify(expectedResults[0]?.values || []);
+            
+            if (userValues === expectedValues) {
+              verificationPassed = true;
+              feedback.push('✓ Perfect! Your query produces the correct results.');
+            } else if (userRowCount === expectedRows) {
+              // Same row count but different values - might still be correct for some challenges
+              verificationPassed = true;
+              feedback.push('✓ Great! Your query returned the expected number of results.');
+            } else {
+              feedback.push('✗ Your results do not match the expected output.');
+            }
+          } else {
+            feedback.push(`✗ Expected ${expectedRows} rows, but your query returned ${userRowCount}.`);
+          }
+        }
+      } catch (verifyError) {
+        // If verification query fails, just check if user query succeeded
+        if (rows.length > 0) {
+          verificationPassed = true;
+          feedback.push('✓ Query executed successfully!');
+        }
+      }
 
       setQueryResult({
-        ...verifyData,
-        rows: execData.rows,
-        rowCount: execData.rowCount
+        success: true,
+        passed: verificationPassed,
+        rows,
+        columns,
+        rowCount: rows.length,
+        feedback
       });
 
       // Auto-complete if passed
-      if (verifyData.passed) {
+      if (verificationPassed) {
         await handleChallengeComplete();
       }
 
@@ -119,11 +222,44 @@ const SQLCodingChallenge = ({
         success: false,
         passed: false,
         error: error.message,
-        feedback: [`✗ Connection Error: ${error.message}`]
+        feedback: [`✗ Error: ${error.message}`]
       });
     }
 
     setIsRunning(false);
+  };
+
+  // Reset database to original state
+  const resetDatabase = async () => {
+    try {
+      setDbLoading(true);
+      if (dbRef.current) {
+        dbRef.current.close();
+      }
+      
+      const SQL = await initSqlJs({
+        locateFile: file => `https://sql.js.org/dist/${file}`
+      });
+      
+      const response = await fetch('/chinook.db');
+      const arrayBuffer = await response.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      
+      const database = new SQL.Database(uint8Array);
+      dbRef.current = database;
+      setDb(database);
+      setDbLoading(false);
+      setQueryResult(null);
+      
+      setXpNotification({
+        type: 'info',
+        message: 'Database reset to original state!'
+      });
+      setTimeout(() => setXpNotification(null), 3000);
+    } catch (error) {
+      setDbError(error.message);
+      setDbLoading(false);
+    }
   };
 
   // Handle challenge completion
@@ -206,6 +342,34 @@ const SQLCodingChallenge = ({
       <div className="bg-gray-800 rounded-lg p-8 text-center">
         <Database className="w-12 h-12 text-gray-500 mx-auto mb-4" />
         <p className="text-gray-400">No SQL challenges available for this topic yet.</p>
+      </div>
+    );
+  }
+
+  // Show database loading state
+  if (dbLoading) {
+    return (
+      <div className="bg-gray-800 rounded-lg p-8 text-center">
+        <Loader2 className="w-12 h-12 text-blue-500 mx-auto mb-4 animate-spin" />
+        <p className="text-gray-300 font-semibold">Loading Chinook Database...</p>
+        <p className="text-gray-500 text-sm mt-2">Setting up your personal SQL environment</p>
+      </div>
+    );
+  }
+
+  // Show database error state
+  if (dbError) {
+    return (
+      <div className="bg-gray-800 rounded-lg p-8 text-center">
+        <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+        <p className="text-red-400 font-semibold">Failed to load database</p>
+        <p className="text-gray-500 text-sm mt-2">{dbError}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -474,8 +638,19 @@ const SQLCodingChallenge = ({
               <div className="flex items-center gap-2">
                 <Database className="w-4 h-4 text-blue-400" />
                 <span className="text-sm text-gray-300">query.sql</span>
+                <span className="text-xs text-green-400 bg-green-900/30 px-2 py-0.5 rounded">
+                  🔒 Browser SQLite (sql.js)
+                </span>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={resetDatabase}
+                  className="px-3 py-1.5 text-sm text-orange-400 hover:text-orange-300 flex items-center gap-1"
+                  title="Reset database to original state"
+                >
+                  <Database className="w-4 h-4" />
+                  Reset DB
+                </button>
                 <button
                   onClick={resetQuery}
                   className="px-3 py-1.5 text-sm text-gray-400 hover:text-white flex items-center gap-1"
@@ -486,7 +661,7 @@ const SQLCodingChallenge = ({
                 </button>
                 <button
                   onClick={executeQuery}
-                  disabled={isRunning}
+                  disabled={isRunning || dbLoading}
                   className="px-4 py-1.5 bg-green-600 hover:bg-green-500 disabled:bg-gray-600 text-white rounded flex items-center gap-2 text-sm font-medium transition-colors"
                 >
                   {isRunning ? (

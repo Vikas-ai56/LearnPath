@@ -759,6 +759,64 @@ export default async function handler(req, res) {
       });
     }
 
+    // ==================== LEADERBOARD ====================
+    
+    // GET /api/auth/leaderboard - Get top users by XP
+    if (path === '/api/auth/leaderboard' && method === 'GET') {
+      try {
+        const { data: users, error } = await supabase
+          .from('users')
+          .select('id, name, email, xp, level, learning_style')
+          .order('xp', { ascending: false })
+          .limit(20);
+
+        if (error) {
+          return json(res, { leaderboard: [] });
+        }
+
+        const leaderboard = users.map(user => ({
+          id: user.id,
+          name: user.name,
+          xp: user.xp || 0,
+          level: user.level || 1,
+          learningStyle: user.learning_style
+        }));
+
+        return json(res, { leaderboard });
+      } catch {
+        return json(res, { leaderboard: [] });
+      }
+    }
+
+    // ==================== SQL CHALLENGES (Limited on Vercel) ====================
+    
+    // POST /api/sql/execute - Execute SQL (not available on Vercel - needs local server)
+    if (path === '/api/sql/execute' && method === 'POST') {
+      return json(res, { 
+        error: 'SQL challenges require the local server. Please run the app locally with `npm run dev:all` to use SQL challenges.',
+        message: 'The Chinook database is only available when running locally.',
+        hint: 'Run `npm run dev:all` in your terminal to start both frontend and backend servers.'
+      }, 501);
+    }
+
+    // POST /api/sql/verify - Verify SQL (not available on Vercel)
+    if (path === '/api/sql/verify' && method === 'POST') {
+      return json(res, { 
+        error: 'SQL challenges require the local server. Please run the app locally with `npm run dev:all` to use SQL challenges.',
+        message: 'The Chinook database is only available when running locally.',
+        hint: 'Run `npm run dev:all` in your terminal to start both frontend and backend servers.'
+      }, 501);
+    }
+
+    // GET /api/sql/health - SQL health check
+    if (path === '/api/sql/health' && method === 'GET') {
+      return json(res, { 
+        status: 'unavailable',
+        message: 'SQL challenges are only available when running locally',
+        environment: 'vercel'
+      });
+    }
+
     // ==================== 404 ====================
     return json(res, { error: 'API endpoint not found', path }, 404);
 
