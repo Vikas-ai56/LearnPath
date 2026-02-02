@@ -1,4 +1,5 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
+import { API_BASE_URL } from '../api/service';
 
 const AuthContext = createContext(null);
 
@@ -19,7 +20,7 @@ export const AuthProvider = ({ children }) => {
 
     const verifyToken = async () => {
         try {
-            const response = await fetch('http://localhost:3000/api/auth/verify', {
+            const response = await fetch(`${API_BASE_URL}/auth/verify`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -41,7 +42,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     const signup = async (name, email, password) => {
-        const response = await fetch('http://localhost:3000/api/auth/signup', {
+        const response = await fetch(`${API_BASE_URL}/auth/signup`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, email, password })
@@ -62,7 +63,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     const login = async (email, password) => {
-        const response = await fetch('http://localhost:3000/api/auth/login', {
+        const response = await fetch(`${API_BASE_URL}/auth/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ email, password })
@@ -93,7 +94,7 @@ export const AuthProvider = ({ children }) => {
         if (!token) return null;
 
         try {
-            const response = await fetch('http://localhost:3000/api/auth/complete-quiz', {
+            const response = await fetch(`${API_BASE_URL}/auth/complete-quiz`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -128,7 +129,7 @@ export const AuthProvider = ({ children }) => {
         if (!token) return;
 
         try {
-            const response = await fetch(`http://localhost:3000/api/auth/quiz-progress/${courseName}`, {
+            const response = await fetch(`${API_BASE_URL}/auth/quiz-progress/${courseName}`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }
@@ -158,7 +159,7 @@ export const AuthProvider = ({ children }) => {
             throw new Error('Please log in to submit the questionnaire');
         }
         try {
-            const response = await fetch('http://localhost:3000/api/auth/vark-submit', {
+            const response = await fetch(`${API_BASE_URL}/auth/vark-submit`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({ responses })
@@ -182,7 +183,7 @@ export const AuthProvider = ({ children }) => {
     const fetchVARKResponses = async () => {
         if (!token) return null;
         try {
-            const response = await fetch('http://localhost:3000/api/auth/vark-responses', {
+            const response = await fetch(`${API_BASE_URL}/auth/vark-responses`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await response.json();
@@ -196,7 +197,7 @@ export const AuthProvider = ({ children }) => {
     const updateLearningStyle = async (learning_style) => {
         if (!token) throw new Error('Not authenticated');
         try {
-            const response = await fetch('http://localhost:3000/api/user/vark', {
+            const response = await fetch(`${API_BASE_URL}/user/vark`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

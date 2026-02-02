@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Trophy, Star, User } from 'lucide-react';
+import { API_BASE_URL } from '../api/service';
 
 const Leaderboard = ({ isOpen, onClose }) => {
     const [leaderboard, setLeaderboard] = useState([]);
@@ -14,7 +15,7 @@ const Leaderboard = ({ isOpen, onClose }) => {
     const fetchLeaderboard = async () => {
         try {
             setLoading(true);
-            const response = await fetch('http://localhost:3000/api/auth/leaderboard');
+            const response = await fetch(`${API_BASE_URL}/auth/leaderboard`);
             const data = await response.json();
             setLeaderboard(data.leaderboard || []);
         } catch (error) {

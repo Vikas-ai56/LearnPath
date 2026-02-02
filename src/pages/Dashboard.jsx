@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../api/service';
 import { organizeContentByStyle, STYLE_BADGES, getExplanationLabel } from '../api/varkUtils';
 import { BookOpen, Award, Star, ExternalLink, Filter, Eye, Ear, FileText, Hand, Sparkles, TrendingUp, Home, ArrowLeft } from 'lucide-react';
 import SmartStudyTip from '../components/SmartStudyTip';
@@ -65,7 +66,7 @@ export default function Dashboard() {
         const token = localStorage.getItem('token');
 
         // Fetch user profile to get learning style
-        const profileRes = await fetch('http://localhost:3000/api/user/profile', {
+        const profileRes = await fetch(`${API_BASE_URL}/user/profile`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const profileData = await profileRes.json();
@@ -81,7 +82,7 @@ export default function Dashboard() {
         console.log('✅ Dashboard - Learning Style Set:', profileData.learningStyle);
 
         // Fetch all content
-        const contentRes = await fetch('http://localhost:3000/api/user/content', {
+        const contentRes = await fetch(`${API_BASE_URL}/user/content`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const contentData = await contentRes.json();

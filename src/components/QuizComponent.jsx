@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CheckCircle, XCircle, Award, Brain, ArrowRight, RotateCcw, PlayCircle, Star, ExternalLink, Users } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../api/service';
 
 // Simple hash function for question text
 const hashQuestion = (text) => {
@@ -34,7 +35,7 @@ const QuizComponent = ({ topicId, quizData, topicData, onComplete }) => {
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const response = await fetch(`http://localhost:3000/api/user/question-stats/${topicId}`);
+        const response = await fetch(`${API_BASE_URL}/user/question-stats/${topicId}`);
         if (response.ok) {
           const data = await response.json();
           setQuestionStats(data.stats || {});
@@ -68,7 +69,7 @@ const QuizComponent = ({ topicId, quizData, topicData, onComplete }) => {
     const token = localStorage.getItem('token');
 
     try {
-      await fetch('http://localhost:3000/api/user/question-stats', {
+      await fetch(`${API_BASE_URL}/user/question-stats`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -135,7 +136,7 @@ const QuizComponent = ({ topicId, quizData, topicData, onComplete }) => {
                 correctAnswer: quizData[a.questionIndex].options[quizData[a.questionIndex].correct]
               }));
 
-              await fetch('http://localhost:3000/api/user/save-weak-areas', {
+              await fetch(`${API_BASE_URL}/user/save-weak-areas`, {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',

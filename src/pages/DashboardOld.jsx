@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../api/service';
 import { organizeContentByStyle } from '../api/varkUtils';
 import { Star, BookOpen, Video, FileText, Headphones, PenTool, ExternalLink, Loader } from 'lucide-react';
 
@@ -35,14 +36,14 @@ const Dashboard = () => {
         setLoading(true);
 
         // Fetch user profile
-        const profileRes = await fetch('http://localhost:3000/api/user/profile', {
+        const profileRes = await fetch(`${API_BASE_URL}/user/profile`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         const profileData = await profileRes.json();
         setUser(profileData);
 
         // Fetch all content
-        const contentRes = await fetch('http://localhost:3000/api/user/content');
+        const contentRes = await fetch(`${API_BASE_URL}/user/content`);
         const contentData = await contentRes.json();
 
         // Organize content by learning style

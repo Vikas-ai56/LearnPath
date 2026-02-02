@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { PlayCircle, BookOpen, Brain, Code, Award, Clock, Home, ChevronLeft, ExternalLink, CheckCircle, FileDown, Star, Lightbulb, Terminal, Database } from 'lucide-react';
+import { API_BASE_URL } from '../api/service';
 import { Link, useParams, useLocation } from 'react-router-dom';
 import { OS_CURRICULUM, OS_QUIZZES, OS_EXERCISES } from '../data/operatingSystemsCurriculum.js';
 import { DS_CURRICULUM, DS_QUIZZES, DS_EXERCISES } from '../data/dataStructuresCurriculum.js';
@@ -97,7 +98,7 @@ const SubjectPage = () => {
       const token = localStorage.getItem('token');
 
       // Fetch user profile to get learning style
-      const profileRes = await fetch('http://localhost:3000/api/user/profile', {
+      const profileRes = await fetch(`${API_BASE_URL}/user/profile`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -112,7 +113,7 @@ const SubjectPage = () => {
       // Fetch content filtered by this subject
       const courseName = subject.toLowerCase().replace(/\s+/g, '-');
       const contentRes = await fetch(
-        `http://localhost:3000/api/user/content?course=${encodeURIComponent(courseName)}`,
+        `${API_BASE_URL}/user/content?course=${encodeURIComponent(courseName)}`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
 

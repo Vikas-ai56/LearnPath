@@ -13,7 +13,7 @@ const getApiBaseUrl = () => {
   return import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 };
 
-const API_BASE_URL = getApiBaseUrl();
+export const API_BASE_URL = getApiBaseUrl();
 
 // Get auth token from localStorage (uses 'token' key to match AuthContext)
 const getToken = () => localStorage.getItem('token');

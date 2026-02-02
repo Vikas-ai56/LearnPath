@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TrendingUp, Award, BookOpen, CheckCircle, Clock, Target } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../api/service';
 
 /**
  * ProgressTracker Component
@@ -36,7 +37,7 @@ export default function ProgressTracker() {
             }
 
             try {
-                const response = await fetch('http://localhost:3000/api/user/progress', {
+                const response = await fetch(`${API_BASE_URL}/user/progress`, {
                     headers: {
                         'Authorization': `Bearer ${authToken}`
                     }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { API_BASE_URL } from '../api/service';
 import { 
   Calendar, Clock, CheckCircle, Circle, Target, TrendingUp, 
   BookOpen, Video, Brain, Award, ChevronRight, AlertCircle, Home 
@@ -23,7 +24,7 @@ const LessonPlanner = ({ subject = 'Operating Systems', userId }) => {
     
     // First try API
     try {
-      const response = await fetch(`http://localhost:3000/api/subjects/${encodeURIComponent(subject)}`);
+      const response = await fetch(`${API_BASE_URL}/subjects/${encodeURIComponent(subject)}`);
       const data = await response.json();
       
       if (data.success && data.data && data.data.length > 0) {

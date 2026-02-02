@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, CheckCircle, Lightbulb, TrendingUp, BookOpen, RefreshCw, ChevronDown, ChevronUp, Target } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { API_BASE_URL } from '../api/service';
 
 /**
  * InsightsPanel - Displays personalized improvement recommendations
@@ -34,7 +35,7 @@ const InsightsPanel = () => {
                 return;
             }
 
-            const response = await fetch('http://localhost:3000/api/user/insights', {
+            const response = await fetch(`${API_BASE_URL}/user/insights`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
 
@@ -59,7 +60,7 @@ const InsightsPanel = () => {
     const markAsReviewed = async (topicId, courseName) => {
         try {
             const token = localStorage.getItem('token');
-            await fetch('http://localhost:3000/api/user/mark-reviewed', {
+            await fetch(`${API_BASE_URL}/user/mark-reviewed`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
