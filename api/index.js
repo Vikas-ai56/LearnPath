@@ -1,12 +1,13 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { createClient } from '@supabase/supabase-js';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
-// In-memory storage (note: resets on cold starts - use a real DB for production)
-const users = new Map();
-const progressData = new Map();
-const varkResponses = new Map();
+// Initialize Supabase client
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY; // Use service key for server-side
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 // CORS headers
 const corsHeaders = {
@@ -30,6 +31,13 @@ export default async function handler(req, res) {
     return;
   }
 
+  // Check Supabase connection
+  if (!supabase) {
+    return json(res, { 
+      error: 'Database not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_KEY environment variables.' 
+    }, 500);
+  }
+
   const url = new URL(req.url, `http://${req.headers.host}`);
   const path = url.pathname;
   const method = req.method;
@@ -46,28 +54,52 @@ export default async function handler(req, res) {
         return json(res, { error: 'Name, email, and password are required' }, 400);
       }
       
-      if (users.has(email)) {
+      // Check if user exists
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', email)
+        .single();
+      
+      if (existingUser) {
         return json(res, { error: 'User already exists' }, 400);
       }
       
       const hashedPassword = await bcrypt.hash(password, 10);
+      
+      const { data: newUser, error } = await supabase
+        .from('users')
+        .insert({
+          name,
+          email,
+          password_hash: hashedPassword,
+          learning_style: learningStyle || null,
+          xp: 0,
+          level: 1,
+          streak: 0
+        })
+        .select()
+        .single();
+      
+      if (error) {
+        console.error('Signup error:', error);
+        return json(res, { error: 'Failed to create user' }, 500);
+      }
+      
+      const token = jwt.sign({ userId: newUser.id, email }, JWT_SECRET, { expiresIn: '7d' });
+      
       const user = {
-        id: Date.now().toString(),
-        name,
-        email,
-        password: hashedPassword,
-        learningStyle: learningStyle || null,
-        xp: 0,
-        level: 1,
-        streak: 0,
-        createdAt: new Date().toISOString()
+        id: newUser.id,
+        name: newUser.name,
+        email: newUser.email,
+        learningStyle: newUser.learning_style,
+        xp: newUser.xp,
+        level: newUser.level,
+        streak: newUser.streak,
+        varkCompleted: newUser.vark_completed
       };
       
-      users.set(email, user);
-      const token = jwt.sign({ userId: user.id, email }, JWT_SECRET, { expiresIn: '7d' });
-      
-      const { password: _, ...userWithoutPassword } = user;
-      return json(res, { user: userWithoutPassword, token }, 201);
+      return json(res, { user, token }, 201);
     }
 
     // POST /api/auth/login
@@ -78,20 +110,35 @@ export default async function handler(req, res) {
         return json(res, { error: 'Email and password are required' }, 400);
       }
       
-      const user = users.get(email);
-      if (!user) {
+      const { data: user, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email)
+        .single();
+      
+      if (error || !user) {
         return json(res, { error: 'Invalid credentials' }, 401);
       }
       
-      const isValidPassword = await bcrypt.compare(password, user.password);
+      const isValidPassword = await bcrypt.compare(password, user.password_hash);
       if (!isValidPassword) {
         return json(res, { error: 'Invalid credentials' }, 401);
       }
       
       const token = jwt.sign({ userId: user.id, email }, JWT_SECRET, { expiresIn: '7d' });
       
-      const { password: _, ...userWithoutPassword } = user;
-      return json(res, { user: userWithoutPassword, token });
+      const userResponse = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        learningStyle: user.learning_style,
+        xp: user.xp,
+        level: user.level,
+        streak: user.streak,
+        varkCompleted: user.vark_completed
+      };
+      
+      return json(res, { user: userResponse, token });
     }
 
     // GET /api/auth/me
@@ -104,14 +151,30 @@ export default async function handler(req, res) {
       try {
         const token = authHeader.split(' ')[1];
         const decoded = jwt.verify(token, JWT_SECRET);
-        const user = users.get(decoded.email);
         
-        if (!user) {
+        const { data: user, error } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', decoded.email)
+          .single();
+        
+        if (error || !user) {
           return json(res, { error: 'User not found' }, 404);
         }
         
-        const { password: _, ...userWithoutPassword } = user;
-        return json(res, { user: userWithoutPassword });
+        const userResponse = {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          learningStyle: user.learning_style,
+          xp: user.xp,
+          level: user.level,
+          streak: user.streak,
+          varkCompleted: user.vark_completed,
+          varkScores: user.vark_scores
+        };
+        
+        return json(res, { user: userResponse });
       } catch {
         return json(res, { error: 'Invalid token' }, 401);
       }
@@ -129,18 +192,30 @@ export default async function handler(req, res) {
       try {
         const token = authHeader.split(' ')[1];
         const decoded = jwt.verify(token, JWT_SECRET);
-        const user = users.get(decoded.email);
-        
-        if (!user) {
-          return json(res, { error: 'User not found' }, 404);
-        }
         
         const { learningStyle } = body;
-        user.learningStyle = learningStyle;
-        users.set(decoded.email, user);
         
-        const { password: _, ...userWithoutPassword } = user;
-        return json(res, { user: userWithoutPassword });
+        const { data: user, error } = await supabase
+          .from('users')
+          .update({ learning_style: learningStyle, updated_at: new Date().toISOString() })
+          .eq('email', decoded.email)
+          .select()
+          .single();
+        
+        if (error) {
+          return json(res, { error: 'Failed to update learning style' }, 500);
+        }
+        
+        const userResponse = {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          learningStyle: user.learning_style,
+          xp: user.xp,
+          level: user.level
+        };
+        
+        return json(res, { user: userResponse });
       } catch {
         return json(res, { error: 'Server error' }, 500);
       }
@@ -158,9 +233,15 @@ export default async function handler(req, res) {
       try {
         const token = authHeader.split(' ')[1];
         const decoded = jwt.verify(token, JWT_SECRET);
-        const user = users.get(decoded.email);
+        
+        // Get user
+        const { data: user, error: userError } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', decoded.email)
+          .single();
 
-        if (!user) {
+        if (userError || !user) {
           return json(res, { error: 'User not found' }, 404);
         }
 
@@ -201,19 +282,31 @@ export default async function handler(req, res) {
           .map(([style]) => style);
         const learningStyle = dominantStyles.join('');
 
-        // Save responses and update user
-        varkResponses.set(decoded.email, responses);
-        user.learningStyle = learningStyle;
-        user.varkCompleted = true;
-        user.varkScores = scores;
-        users.set(decoded.email, user);
+        // Save VARK responses (upsert)
+        await supabase
+          .from('vark_responses')
+          .upsert({
+            user_id: user.id,
+            responses
+          }, { onConflict: 'user_id' });
+
+        // Update user with learning style
+        await supabase
+          .from('users')
+          .update({
+            learning_style: learningStyle,
+            vark_completed: true,
+            vark_scores: scores,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', user.id);
 
         // Generate new token with updated info
         const newToken = jwt.sign({
           userId: user.id,
           email: user.email,
           name: user.name,
-          learningStyle: user.learningStyle,
+          learningStyle: learningStyle,
           varkCompleted: true,
           xp: user.xp,
           level: user.level
@@ -241,8 +334,25 @@ export default async function handler(req, res) {
       try {
         const token = authHeader.split(' ')[1];
         const decoded = jwt.verify(token, JWT_SECRET);
-        const responses = varkResponses.get(decoded.email) || null;
-        return json(res, { responses });
+        
+        // Get user first
+        const { data: user } = await supabase
+          .from('users')
+          .select('id')
+          .eq('email', decoded.email)
+          .single();
+        
+        if (!user) {
+          return json(res, { responses: null });
+        }
+        
+        const { data } = await supabase
+          .from('vark_responses')
+          .select('responses')
+          .eq('user_id', user.id)
+          .single();
+        
+        return json(res, { responses: data?.responses || null });
       } catch {
         return json(res, { error: 'Invalid token' }, 401);
       }
@@ -258,19 +368,33 @@ export default async function handler(req, res) {
       try {
         const token = authHeader.split(' ')[1];
         const decoded = jwt.verify(token, JWT_SECRET);
-        const user = users.get(decoded.email);
+        
+        const { learning_style } = body;
+        
+        const { data: user, error } = await supabase
+          .from('users')
+          .update({
+            learning_style,
+            vark_completed: true,
+            updated_at: new Date().toISOString()
+          })
+          .eq('email', decoded.email)
+          .select()
+          .single();
 
-        if (!user) {
+        if (error || !user) {
           return json(res, { error: 'User not found' }, 404);
         }
 
-        const { learning_style } = body;
-        user.learningStyle = learning_style;
-        user.varkCompleted = true;
-        users.set(decoded.email, user);
-
-        const { password: _, ...userWithoutPassword } = user;
-        return json(res, { user: userWithoutPassword, message: 'Learning style updated' });
+        const userResponse = {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          learningStyle: user.learning_style,
+          varkCompleted: user.vark_completed
+        };
+        
+        return json(res, { user: userResponse, message: 'Learning style updated' });
       } catch {
         return json(res, { error: 'Server error' }, 500);
       }
@@ -286,19 +410,46 @@ export default async function handler(req, res) {
       try {
         const token = authHeader.split(' ')[1];
         const decoded = jwt.verify(token, JWT_SECRET);
-        const user = users.get(decoded.email);
+        
+        // Get current user
+        const { data: user } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', decoded.email)
+          .single();
         
         if (!user) {
           return json(res, { error: 'User not found' }, 404);
         }
         
         const { amount } = body;
-        user.xp = (user.xp || 0) + amount;
-        user.level = Math.floor(user.xp / 1000) + 1;
-        users.set(decoded.email, user);
+        const newXp = (user.xp || 0) + amount;
+        const newLevel = Math.floor(newXp / 1000) + 1;
         
-        const { password: _, ...userWithoutPassword } = user;
-        return json(res, { user: userWithoutPassword, xpGained: amount });
+        const { data: updatedUser, error } = await supabase
+          .from('users')
+          .update({ 
+            xp: newXp, 
+            level: newLevel,
+            updated_at: new Date().toISOString()
+          })
+          .eq('email', decoded.email)
+          .select()
+          .single();
+        
+        if (error) {
+          return json(res, { error: 'Failed to update XP' }, 500);
+        }
+        
+        const userResponse = {
+          id: updatedUser.id,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          xp: updatedUser.xp,
+          level: updatedUser.level
+        };
+        
+        return json(res, { user: userResponse, xpGained: amount });
       } catch {
         return json(res, { error: 'Server error' }, 500);
       }
@@ -316,9 +467,37 @@ export default async function handler(req, res) {
         
         const token = authHeader.split(' ')[1];
         const decoded = jwt.verify(token, JWT_SECRET);
-        const userProgress = progressData.get(decoded.email) || {};
         
-        return json(res, { progress: userProgress });
+        // Get user
+        const { data: user } = await supabase
+          .from('users')
+          .select('id')
+          .eq('email', decoded.email)
+          .single();
+        
+        if (!user) {
+          return json(res, { progress: {} });
+        }
+        
+        // Get all progress for user
+        const { data: progressList } = await supabase
+          .from('progress')
+          .select('*')
+          .eq('user_id', user.id);
+        
+        // Convert to object format
+        const progress = {};
+        if (progressList) {
+          for (const p of progressList) {
+            progress[p.challenge_id] = {
+              completed: p.completed,
+              points: p.points,
+              completedAt: p.completed_at
+            };
+          }
+        }
+        
+        return json(res, { progress });
       } catch {
         return json(res, { progress: {} });
       }
@@ -336,27 +515,72 @@ export default async function handler(req, res) {
         const decoded = jwt.verify(token, JWT_SECRET);
         const { challengeId, points } = body;
         
-        let userProgress = progressData.get(decoded.email) || {};
-        userProgress[challengeId] = { completed: true, points, completedAt: new Date().toISOString() };
-        progressData.set(decoded.email, userProgress);
+        // Get user
+        const { data: user } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', decoded.email)
+          .single();
         
-        // Also update XP
-        const user = users.get(decoded.email);
-        if (user) {
-          user.xp = (user.xp || 0) + points;
-          user.level = Math.floor(user.xp / 1000) + 1;
-          users.set(decoded.email, user);
+        if (!user) {
+          return json(res, { error: 'User not found' }, 404);
         }
         
-        return json(res, { success: true, progress: userProgress });
-      } catch {
+        // Upsert progress
+        await supabase
+          .from('progress')
+          .upsert({
+            user_id: user.id,
+            challenge_id: challengeId,
+            completed: true,
+            points,
+            completed_at: new Date().toISOString()
+          }, { onConflict: 'user_id,challenge_id' });
+        
+        // Update user XP
+        const newXp = (user.xp || 0) + points;
+        const newLevel = Math.floor(newXp / 1000) + 1;
+        
+        await supabase
+          .from('users')
+          .update({ xp: newXp, level: newLevel, updated_at: new Date().toISOString() })
+          .eq('id', user.id);
+        
+        // Get updated progress
+        const { data: progressList } = await supabase
+          .from('progress')
+          .select('*')
+          .eq('user_id', user.id);
+        
+        const progress = {};
+        if (progressList) {
+          for (const p of progressList) {
+            progress[p.challenge_id] = {
+              completed: p.completed,
+              points: p.points,
+              completedAt: p.completed_at
+            };
+          }
+        }
+        
+        return json(res, { success: true, progress });
+      } catch (err) {
+        console.error('Progress error:', err);
         return json(res, { error: 'Server error' }, 500);
       }
     }
 
     // ==================== HEALTH CHECK ====================
     if (path === '/api/health' && method === 'GET') {
-      return json(res, { status: 'ok', timestamp: new Date().toISOString(), environment: 'vercel' });
+      // Test Supabase connection
+      const { error } = await supabase.from('users').select('count').limit(1);
+      
+      return json(res, { 
+        status: error ? 'degraded' : 'ok', 
+        timestamp: new Date().toISOString(), 
+        environment: 'vercel',
+        database: error ? 'disconnected' : 'connected'
+      });
     }
 
     // ==================== 404 ====================
