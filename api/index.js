@@ -6,6 +6,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 // In-memory storage (note: resets on cold starts - use a real DB for production)
 const users = new Map();
 const progressData = new Map();
+const varkResponses = new Map();
 
 // CORS headers
 const corsHeaders = {
@@ -140,6 +141,136 @@ export default async function handler(req, res) {
         
         const { password: _, ...userWithoutPassword } = user;
         return json(res, { user: userWithoutPassword });
+      } catch {
+        return json(res, { error: 'Server error' }, 500);
+      }
+    }
+
+    // ==================== VARK ROUTES ====================
+
+    // POST /api/auth/vark-submit - Submit VARK questionnaire responses
+    if (path === '/api/auth/vark-submit' && method === 'POST') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return json(res, { error: 'No token provided' }, 401);
+      }
+
+      try {
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const user = users.get(decoded.email);
+
+        if (!user) {
+          return json(res, { error: 'User not found' }, 404);
+        }
+
+        const { responses } = body;
+        
+        // Calculate VARK scores from responses
+        const scores = { V: 0, A: 0, R: 0, K: 0 };
+        const answerMapping = {
+          q1: { a: 'K', b: 'A', c: 'R', d: 'V' },
+          q2: { a: 'V', b: 'A', c: 'R', d: 'K' },
+          q3: { a: 'A', b: 'R', c: 'K', d: 'V' },
+          q4: { a: 'K', b: 'A', c: 'V', d: 'R' },
+          q5: { a: 'A', b: 'V', c: 'K', d: 'R' },
+          q6: { a: 'R', b: 'A', c: 'K', d: 'V' },
+          q7: { a: 'K', b: 'A', c: 'V', d: 'R' },
+          q8: { a: 'V', b: 'R', c: 'A', d: 'K' },
+          q9: { a: 'R', b: 'A', c: 'K', d: 'V' },
+          q10: { a: 'K', b: 'V', c: 'R', d: 'A' },
+          q11: { a: 'A', b: 'R', c: 'V', d: 'K' },
+          q12: { a: 'K', b: 'R', c: 'A', d: 'V' },
+          q13: { a: 'K', b: 'A', c: 'R', d: 'V' },
+          q14: { a: 'K', b: 'R', c: 'V', d: 'A' },
+          q15: { a: 'K', b: 'A', c: 'R', d: 'V' },
+          q16: { a: 'V', b: 'A', c: 'R', d: 'K' }
+        };
+
+        // Calculate scores
+        for (const [questionId, answer] of Object.entries(responses)) {
+          if (answerMapping[questionId] && answerMapping[questionId][answer]) {
+            scores[answerMapping[questionId][answer]]++;
+          }
+        }
+
+        // Determine dominant learning style
+        const maxScore = Math.max(...Object.values(scores));
+        const dominantStyles = Object.entries(scores)
+          .filter(([_, score]) => score === maxScore)
+          .map(([style]) => style);
+        const learningStyle = dominantStyles.join('');
+
+        // Save responses and update user
+        varkResponses.set(decoded.email, responses);
+        user.learningStyle = learningStyle;
+        user.varkCompleted = true;
+        user.varkScores = scores;
+        users.set(decoded.email, user);
+
+        // Generate new token with updated info
+        const newToken = jwt.sign({
+          userId: user.id,
+          email: user.email,
+          name: user.name,
+          learningStyle: user.learningStyle,
+          varkCompleted: true,
+          xp: user.xp,
+          level: user.level
+        }, JWT_SECRET, { expiresIn: '7d' });
+
+        return json(res, { 
+          token: newToken, 
+          learningStyle, 
+          scores,
+          message: 'VARK assessment completed successfully'
+        });
+      } catch (err) {
+        console.error('VARK submit error:', err);
+        return json(res, { error: 'Server error' }, 500);
+      }
+    }
+
+    // GET /api/auth/vark-responses - Get user's VARK responses
+    if (path === '/api/auth/vark-responses' && method === 'GET') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return json(res, { error: 'No token provided' }, 401);
+      }
+
+      try {
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const responses = varkResponses.get(decoded.email) || null;
+        return json(res, { responses });
+      } catch {
+        return json(res, { error: 'Invalid token' }, 401);
+      }
+    }
+
+    // POST /api/user/vark - Update learning style directly
+    if (path === '/api/user/vark' && method === 'POST') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return json(res, { error: 'No token provided' }, 401);
+      }
+
+      try {
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const user = users.get(decoded.email);
+
+        if (!user) {
+          return json(res, { error: 'User not found' }, 404);
+        }
+
+        const { learning_style } = body;
+        user.learningStyle = learning_style;
+        user.varkCompleted = true;
+        users.set(decoded.email, user);
+
+        const { password: _, ...userWithoutPassword } = user;
+        return json(res, { user: userWithoutPassword, message: 'Learning style updated' });
       } catch {
         return json(res, { error: 'Server error' }, 500);
       }
