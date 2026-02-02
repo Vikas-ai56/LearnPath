@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
+import { Analytics } from '@vercel/analytics/react';
 import SubjectPage from './pages/SubjectPage';
 import LessonPlanner from './components/LessonPlanner';
 import LessonPlannerDSA from './components/LessonPlannerDSA';
@@ -390,6 +391,7 @@ const App = () => {
           </Routes>
         </div>
       </AuthProvider>
+      <Analytics />
     </Router>
   );
 };
