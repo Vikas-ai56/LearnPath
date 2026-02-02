@@ -7,6 +7,11 @@ import SmartStudyTip from '../components/SmartStudyTip';
 import ProgressTracker from '../components/ProgressTracker';
 import InsightsPanel from '../components/InsightsPanel';
 import GeneralDiscussionForum from '../components/GeneralDiscussionForum';
+// Import curriculum data
+import { DS_CURRICULUM } from '../data/dataStructuresCurriculum';
+import { OS_CURRICULUM } from '../data/operatingSystemsCurriculum';
+import { DBMS_CURRICULUM } from '../data/databaseSystemsCurriculum';
+import { CN_CURRICULUM } from '../data/computerNetworksCurriculum';
 
 
 export default function Dashboard() {
@@ -101,8 +106,55 @@ export default function Dashboard() {
         setSelectedLearningStyle(mappedStyle);
         console.log('✅ Dashboard - Learning Style Set:', mappedStyle);
 
-        // Content is loaded from local curriculum data, not API
-        // The Dashboard uses local curriculum files for content
+        // Load content from local curriculum files
+        const curriculumData = [
+          { curriculum: DS_CURRICULUM, course: 'data-structures' },
+          { curriculum: OS_CURRICULUM, course: 'operating-systems' },
+          { curriculum: DBMS_CURRICULUM, course: 'database-systems' },
+          { curriculum: CN_CURRICULUM, course: 'computer-networks' }
+        ];
+
+        const allContentItems = [];
+        const grouped = {};
+
+        curriculumData.forEach(({ curriculum, course }) => {
+          if (curriculum && curriculum.nodes) {
+            curriculum.nodes.forEach(node => {
+              // Extract videos as content items
+              if (node.videos) {
+                node.videos.forEach(video => {
+                  const item = {
+                    id: `${node.id}-video-${video.title}`,
+                    title: video.title,
+                    type: 'video',
+                    url: video.url,
+                    course,
+                    topic: node.label,
+                    duration: video.duration
+                  };
+                  allContentItems.push(item);
+                  if (!grouped[course]) grouped[course] = [];
+                  grouped[course].push(item);
+                });
+              }
+              // Add topic as a reading item
+              const readingItem = {
+                id: `${node.id}-reading`,
+                title: node.label,
+                type: 'reading',
+                description: node.description,
+                course,
+                topics: node.topics
+              };
+              allContentItems.push(readingItem);
+              if (!grouped[course]) grouped[course] = [];
+              grouped[course].push(readingItem);
+            });
+          }
+        });
+
+        setAllContent(allContentItems);
+        setContentBySubject(grouped);
 
         setLoading(false);
       } catch (error) {
@@ -225,7 +277,7 @@ export default function Dashboard() {
             <Award className="w-6 h-6" />
             <span className="text-lg font-medium">Your Learning Style:</span>
             <span className="px-4 py-2 bg-white/20 backdrop-blur rounded-full font-semibold">
-              {profile?.learningStyle || 'Not Set'}
+              {selectedLearningStyle || profile?.learningStyle || 'Not Set'}
             </span>
           </div>
         </div>
@@ -234,7 +286,7 @@ export default function Dashboard() {
       {/* Learning Style Selector */}
       <div className="bg-white border-b border-slate-200 px-6 py-6">
         <div className="max-w-7xl mx-auto">
-          {!profile?.learningStyle && (
+          {!selectedLearningStyle && !profile?.learningStyle && (
             <div className="mb-6 bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-400 rounded-lg p-6">
               <div className="flex items-start gap-4">
                 <div className="bg-yellow-400 rounded-full p-3">

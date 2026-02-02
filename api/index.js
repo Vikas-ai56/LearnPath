@@ -455,6 +455,182 @@ export default async function handler(req, res) {
       }
     }
 
+    // ==================== CHALLENGE ROUTES ====================
+
+    // POST /api/auth/complete-challenge - Complete a coding challenge
+    if (path === '/api/auth/complete-challenge' && method === 'POST') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return json(res, { error: 'No token provided' }, 401);
+      }
+
+      try {
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const { challengeId, topicId, points } = body;
+
+        // Get user
+        const { data: user } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', decoded.email)
+          .single();
+
+        if (!user) {
+          return json(res, { error: 'User not found' }, 404);
+        }
+
+        // Check if already completed
+        const { data: existingProgress } = await supabase
+          .from('progress')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('challenge_id', challengeId)
+          .single();
+
+        if (existingProgress) {
+          return json(res, { 
+            success: true, 
+            xpAwarded: 0, 
+            totalXp: user.xp,
+            message: 'Challenge already completed' 
+          });
+        }
+
+        // Save progress
+        await supabase
+          .from('progress')
+          .insert({
+            user_id: user.id,
+            challenge_id: challengeId,
+            completed: true,
+            points,
+            completed_at: new Date().toISOString()
+          });
+
+        // Update user XP
+        const newXp = (user.xp || 0) + points;
+        const newLevel = Math.floor(newXp / 1000) + 1;
+
+        await supabase
+          .from('users')
+          .update({ xp: newXp, level: newLevel, updated_at: new Date().toISOString() })
+          .eq('id', user.id);
+
+        // Generate new token with updated XP
+        const newToken = jwt.sign({
+          userId: user.id,
+          email: user.email,
+          name: user.name,
+          learningStyle: user.learning_style,
+          xp: newXp,
+          level: newLevel
+        }, JWT_SECRET, { expiresIn: '7d' });
+
+        return json(res, { 
+          success: true, 
+          xpAwarded: points, 
+          totalXp: newXp,
+          token: newToken
+        });
+      } catch (err) {
+        console.error('Challenge complete error:', err);
+        return json(res, { error: 'Server error' }, 500);
+      }
+    }
+
+    // GET /api/auth/challenge-progress - Get all challenge progress
+    if (path === '/api/auth/challenge-progress' && method === 'GET') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return json(res, { progress: {} });
+      }
+
+      try {
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        // Get user
+        const { data: user } = await supabase
+          .from('users')
+          .select('id')
+          .eq('email', decoded.email)
+          .single();
+
+        if (!user) {
+          return json(res, { progress: {} });
+        }
+
+        // Get all progress
+        const { data: progressList } = await supabase
+          .from('progress')
+          .select('*')
+          .eq('user_id', user.id);
+
+        const progress = {};
+        if (progressList) {
+          for (const p of progressList) {
+            progress[p.challenge_id] = {
+              completed: p.completed,
+              points: p.points,
+              completedAt: p.completed_at
+            };
+          }
+        }
+
+        return json(res, { progress });
+      } catch {
+        return json(res, { progress: {} });
+      }
+    }
+
+    // GET /api/auth/challenge-progress/:topicId - Get challenge progress for topic
+    if (path.startsWith('/api/auth/challenge-progress/') && method === 'GET') {
+      const authHeader = req.headers.authorization;
+      const topicId = path.split('/').pop();
+      
+      if (!authHeader) {
+        return json(res, { progress: {} });
+      }
+
+      try {
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        const { data: user } = await supabase
+          .from('users')
+          .select('id')
+          .eq('email', decoded.email)
+          .single();
+
+        if (!user) {
+          return json(res, { progress: {} });
+        }
+
+        // Get progress for challenges containing the topicId
+        const { data: progressList } = await supabase
+          .from('progress')
+          .select('*')
+          .eq('user_id', user.id)
+          .like('challenge_id', `%${topicId}%`);
+
+        const progress = {};
+        if (progressList) {
+          for (const p of progressList) {
+            progress[p.challenge_id] = {
+              completed: p.completed,
+              points: p.points,
+              completedAt: p.completed_at
+            };
+          }
+        }
+
+        return json(res, { progress });
+      } catch {
+        return json(res, { progress: {} });
+      }
+    }
+
     // ==================== PROGRESS ROUTES ====================
     
     // GET /api/progress
