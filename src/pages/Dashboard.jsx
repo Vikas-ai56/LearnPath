@@ -179,20 +179,40 @@ export default function Dashboard() {
               if (!grouped[course]) grouped[course] = [];
               grouped[course].push(textItem);
 
-              // Add exercises/coding challenges (Kinesthetic learners)
-              if (node.exercises || node.codingChallenges) {
-                const exerciseItem = {
-                  id: `${node.id}-exercise`,
-                  title: `${node.label} - Practice`,
-                  type: 'exercise',  // Matches Kinesthetic preference
-                  description: `Hands-on practice for ${node.label}`,
+              // Add quiz item for every topic (Kinesthetic learners)
+              // All topics have quizzes on the subject page
+              const quizItem = {
+                id: `${node.id}-quiz`,
+                title: `${node.label} - Quiz`,
+                type: 'quiz',  // Matches Kinesthetic preference
+                description: `Test your knowledge of ${node.label}`,
+                url: `/subject/${course}#${node.id}`,
+                course,
+                topic: node.label
+              };
+              allContentItems.push(quizItem);
+              if (!grouped[course]) grouped[course] = [];
+              grouped[course].push(quizItem);
+
+              // Add coding practice for applicable topics (Kinesthetic learners)
+              // Check if this is a topic that could have coding challenges
+              const hasCodingPotential = ['stacks', 'queues', 'linked', 'tree', 'graph', 'sort', 'search', 'sql', 'query', 'process', 'scheduling'].some(
+                keyword => node.id.toLowerCase().includes(keyword) || node.label.toLowerCase().includes(keyword)
+              );
+              
+              if (hasCodingPotential) {
+                const codingItem = {
+                  id: `${node.id}-coding`,
+                  title: `${node.label} - Coding Practice`,
+                  type: 'coding',  // Matches Kinesthetic preference
+                  description: `Hands-on coding practice for ${node.label}`,
                   url: `/subject/${course}#${node.id}`,
                   course,
                   topic: node.label
                 };
-                allContentItems.push(exerciseItem);
+                allContentItems.push(codingItem);
                 if (!grouped[course]) grouped[course] = [];
-                grouped[course].push(exerciseItem);
+                grouped[course].push(codingItem);
               }
             });
           }
