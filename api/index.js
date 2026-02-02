@@ -22,6 +22,21 @@ function json(res, data, status = 200) {
   res.end(JSON.stringify(data));
 }
 
+// Helper to get learning style specific tips
+function getStyleSpecificTip(learningStyle, topicLabel) {
+  const tips = {
+    'V': `Watch a video explanation of ${topicLabel} to visualize the concepts.`,
+    'Visual': `Watch a video explanation of ${topicLabel} to visualize the concepts.`,
+    'A': `Try explaining ${topicLabel} out loud or discuss it with a study partner.`,
+    'Aural': `Try explaining ${topicLabel} out loud or discuss it with a study partner.`,
+    'R': `Re-read the ${topicLabel} material and take detailed notes.`,
+    'ReadWrite': `Re-read the ${topicLabel} material and take detailed notes.`,
+    'K': `Practice hands-on exercises for ${topicLabel} to reinforce learning.`,
+    'Kinesthetic': `Practice hands-on exercises for ${topicLabel} to reinforce learning.`
+  };
+  return tips[learningStyle] || `Review the ${topicLabel} material and try the quiz again.`;
+}
+
 // Main handler
 export default async function handler(req, res) {
   // Handle CORS preflight
@@ -785,6 +800,248 @@ export default async function handler(req, res) {
         return json(res, { leaderboard });
       } catch {
         return json(res, { leaderboard: [] });
+      }
+    }
+
+    // ==================== QUIZ COMPLETION ====================
+
+    // POST /api/auth/complete-quiz - Complete a quiz and award XP
+    if (path === '/api/auth/complete-quiz' && method === 'POST') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return json(res, { error: 'No token provided' }, 401);
+      }
+
+      try {
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const { courseName, topicId, quizTitle, score, totalQuestions } = body;
+
+        // Get user
+        const { data: user } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', decoded.email)
+          .single();
+
+        if (!user) {
+          return json(res, { error: 'User not found' }, 404);
+        }
+
+        // Calculate XP based on score (10 XP base + bonus for high scores)
+        const percentage = Math.round((score / totalQuestions) * 100);
+        let xpEarned = 10; // Base XP
+        if (percentage >= 90) xpEarned = 25;
+        else if (percentage >= 80) xpEarned = 20;
+        else if (percentage >= 70) xpEarned = 15;
+
+        // Update user XP
+        const newXp = (user.xp || 0) + xpEarned;
+        const newLevel = Math.floor(newXp / 1000) + 1;
+
+        await supabase
+          .from('users')
+          .update({ xp: newXp, level: newLevel, updated_at: new Date().toISOString() })
+          .eq('id', user.id);
+
+        // Save quiz progress
+        await supabase
+          .from('progress')
+          .upsert({
+            user_id: user.id,
+            challenge_id: `quiz-${topicId}`,
+            completed: percentage >= 70,
+            points: xpEarned,
+            completed_at: new Date().toISOString()
+          }, { onConflict: 'user_id,challenge_id' });
+
+        // Generate new token with updated XP
+        const newToken = jwt.sign({
+          userId: user.id,
+          email: user.email,
+          name: user.name,
+          learningStyle: user.learning_style,
+          xp: newXp,
+          level: newLevel
+        }, JWT_SECRET, { expiresIn: '7d' });
+
+        return json(res, {
+          success: true,
+          xpAwarded: xpEarned,
+          totalXp: newXp,
+          level: newLevel,
+          passed: percentage >= 70,
+          token: newToken
+        });
+      } catch (err) {
+        console.error('Quiz complete error:', err);
+        return json(res, { error: 'Server error' }, 500);
+      }
+    }
+
+    // ==================== INSIGHTS & WEAK AREAS ====================
+
+    // GET /api/user/insights - Get user's weak areas and improvement suggestions
+    if (path === '/api/user/insights' && method === 'GET') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return json(res, { error: 'No token provided' }, 401);
+      }
+
+      try {
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+
+        // Get user
+        const { data: user } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', decoded.email)
+          .single();
+
+        if (!user) {
+          return json(res, { insights: [], summary: { weakTopicCount: 0, totalWrongAnswers: 0 } });
+        }
+
+        // Get weak areas from progress table (stored as JSON or separate table)
+        const { data: weakAreas } = await supabase
+          .from('weak_areas')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(10);
+
+        if (!weakAreas || weakAreas.length === 0) {
+          return json(res, {
+            insights: [],
+            summary: { weakTopicCount: 0, totalWrongAnswers: 0 },
+            learningStyle: user.learning_style,
+            message: 'Complete some quizzes to get personalized improvement insights!'
+          });
+        }
+
+        // Transform weak areas into insights
+        const insights = weakAreas.map(area => ({
+          topicId: area.topic_id,
+          topicLabel: area.topic_label,
+          courseName: area.course_name,
+          wrongCount: area.wrong_count || 1,
+          priority: area.wrong_count >= 3 ? 'high' : area.wrong_count >= 2 ? 'medium' : 'low',
+          tip: getStyleSpecificTip(user.learning_style, area.topic_label),
+          wrongQuestions: area.wrong_questions || []
+        }));
+
+        return json(res, {
+          insights,
+          summary: {
+            weakTopicCount: insights.length,
+            totalWrongAnswers: insights.reduce((sum, i) => sum + i.wrongCount, 0)
+          },
+          learningStyle: user.learning_style
+        });
+      } catch (err) {
+        console.error('Insights error:', err);
+        return json(res, { insights: [], summary: { weakTopicCount: 0, totalWrongAnswers: 0 } });
+      }
+    }
+
+    // POST /api/user/save-weak-areas - Save areas where user made mistakes
+    if (path === '/api/user/save-weak-areas' && method === 'POST') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return json(res, { error: 'No token provided' }, 401);
+      }
+
+      try {
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const { courseName, topicId, topicLabel, wrongQuestions } = body;
+
+        // Get user
+        const { data: user } = await supabase
+          .from('users')
+          .select('id')
+          .eq('email', decoded.email)
+          .single();
+
+        if (!user) {
+          return json(res, { error: 'User not found' }, 404);
+        }
+
+        // Check if weak area already exists
+        const { data: existing } = await supabase
+          .from('weak_areas')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('topic_id', topicId)
+          .single();
+
+        if (existing) {
+          // Update existing
+          await supabase
+            .from('weak_areas')
+            .update({
+              wrong_count: (existing.wrong_count || 0) + wrongQuestions.length,
+              wrong_questions: [...(existing.wrong_questions || []), ...wrongQuestions].slice(-5),
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', existing.id);
+        } else {
+          // Insert new
+          await supabase
+            .from('weak_areas')
+            .insert({
+              user_id: user.id,
+              course_name: courseName,
+              topic_id: topicId,
+              topic_label: topicLabel,
+              wrong_count: wrongQuestions.length,
+              wrong_questions: wrongQuestions.slice(-5),
+              created_at: new Date().toISOString()
+            });
+        }
+
+        return json(res, { success: true });
+      } catch (err) {
+        console.error('Save weak areas error:', err);
+        return json(res, { error: 'Server error' }, 500);
+      }
+    }
+
+    // POST /api/user/mark-reviewed - Mark a weak area as reviewed
+    if (path === '/api/user/mark-reviewed' && method === 'POST') {
+      const authHeader = req.headers.authorization;
+      if (!authHeader) {
+        return json(res, { error: 'No token provided' }, 401);
+      }
+
+      try {
+        const token = authHeader.split(' ')[1];
+        const decoded = jwt.verify(token, JWT_SECRET);
+        const { topicId, courseName } = body;
+
+        // Get user
+        const { data: user } = await supabase
+          .from('users')
+          .select('id')
+          .eq('email', decoded.email)
+          .single();
+
+        if (!user) {
+          return json(res, { error: 'User not found' }, 404);
+        }
+
+        // Delete the weak area
+        await supabase
+          .from('weak_areas')
+          .delete()
+          .eq('user_id', user.id)
+          .eq('topic_id', topicId);
+
+        return json(res, { success: true });
+      } catch (err) {
+        console.error('Mark reviewed error:', err);
+        return json(res, { error: 'Server error' }, 500);
       }
     }
 

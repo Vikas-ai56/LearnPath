@@ -108,10 +108,22 @@ const InsightsPanel = () => {
         );
     }
 
-    if (error) {
+    // Show friendly message instead of error
+    if (error || insights.length === 0) {
         return (
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                <p className="text-gray-500 text-center">{error}</p>
+                <div className="flex items-center gap-2 mb-3">
+                    <Lightbulb className="w-5 h-5 text-amber-500" />
+                    <h3 className="font-semibold text-slate-800">Quick Insights</h3>
+                </div>
+                <p className="text-slate-600 text-sm mb-3">
+                    {message || 'Complete quizzes to see personalized improvement suggestions based on your mistakes.'}
+                </p>
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <p className="text-amber-700 text-sm">
+                        💡 Tip: Take a quiz on any topic to get learning-style specific recommendations!
+                    </p>
+                </div>
             </div>
         );
     }

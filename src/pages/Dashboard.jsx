@@ -442,28 +442,38 @@ export default function Dashboard() {
                     {/* Smart Study Tip - Module 5: VARK-Aware Feedback */}
                     <SmartStudyTip userStyle={selectedLearningStyle} />
 
-                    {/* Recommended Resources */}
+                    {/* Recommended Resources - Limited to 5 */}
                     {recommended.length > 0 && (
                       <div className="mb-6">
                         <h3 className="text-lg font-semibold text-slate-800 mb-3 flex items-center gap-2">
                           <Star className="w-5 h-5 text-yellow-500 fill-yellow-500" />
                           Recommended for {selectedLearningStyle} Learners
+                          {recommended.length > 5 && (
+                            <span className="text-sm font-normal text-slate-500">
+                              (showing 5 of {recommended.length})
+                            </span>
+                          )}
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                          {recommended.map(item => renderContentCard(item, true))}
+                          {recommended.slice(0, 5).map(item => renderContentCard(item, true))}
                         </div>
                       </div>
                     )}
 
-                    {/* Other Resources */}
+                    {/* Other Resources - Limited to 5 */}
                     {others.length > 0 && (
                       <div>
                         <h3 className="text-lg font-semibold text-slate-700 mb-3 flex items-center gap-2">
                           <BookOpen className="w-5 h-5 text-slate-500" />
                           Other Resources
+                          {others.length > 5 && (
+                            <span className="text-sm font-normal text-slate-500">
+                              (showing 5 of {others.length})
+                            </span>
+                          )}
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {others.map(item => renderContentCard(item, false))}
+                          {others.slice(0, 5).map(item => renderContentCard(item, false))}
                         </div>
                       </div>
                     )}
