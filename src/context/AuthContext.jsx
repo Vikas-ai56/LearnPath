@@ -20,7 +20,7 @@ export const AuthProvider = ({ children }) => {
 
     const verifyToken = async () => {
         try {
-            const response = await fetch(`${API_BASE_URL}/auth/verify`, {
+            const response = await fetch(`${API_BASE_URL}/auth/me`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
                 }

@@ -65,40 +65,44 @@ export default function Dashboard() {
       try {
         const token = localStorage.getItem('token');
 
-        // Fetch user profile to get learning style
-        const profileRes = await fetch(`${API_BASE_URL}/user/profile`, {
+        // Fetch user profile using /auth/me endpoint
+        const profileRes = await fetch(`${API_BASE_URL}/auth/me`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
+        
+        if (!profileRes.ok) {
+          console.error('Failed to fetch profile');
+          setLoading(false);
+          return;
+        }
+        
         const profileData = await profileRes.json();
+        const userProfile = profileData.user;
         console.log('🔍 Dashboard - User Profile Loaded:', {
-          userId: profileData.id,
-          userName: profileData.name,
-          userEmail: profileData.email,
-          learningStyle: profileData.learningStyle
+          userId: userProfile.id,
+          userName: userProfile.name,
+          userEmail: userProfile.email,
+          learningStyle: userProfile.learningStyle
         });
-        setProfile(profileData);
-        // Use user's actual learning style from database
-        setSelectedLearningStyle(profileData.learningStyle);
-        console.log('✅ Dashboard - Learning Style Set:', profileData.learningStyle);
+        setProfile(userProfile);
+        
+        // Map single-letter VARK codes to full names for display
+        const styleMapping = {
+          'V': 'Visual',
+          'A': 'Aural',
+          'R': 'ReadWrite',
+          'K': 'Kinesthetic',
+          'Visual': 'Visual',
+          'Aural': 'Aural',
+          'ReadWrite': 'ReadWrite',
+          'Kinesthetic': 'Kinesthetic'
+        };
+        const mappedStyle = userProfile.learningStyle ? styleMapping[userProfile.learningStyle] || userProfile.learningStyle : null;
+        setSelectedLearningStyle(mappedStyle);
+        console.log('✅ Dashboard - Learning Style Set:', mappedStyle);
 
-        // Fetch all content
-        const contentRes = await fetch(`${API_BASE_URL}/user/content`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const contentData = await contentRes.json();
-        const content = contentData.content || [];
-        setAllContent(content);
-
-        // Group content by subject (course field)
-        const grouped = {};
-        content.forEach(item => {
-          const course = item.course || 'other';
-          if (!grouped[course]) {
-            grouped[course] = [];
-          }
-          grouped[course].push(item);
-        });
-        setContentBySubject(grouped);
+        // Content is loaded from local curriculum data, not API
+        // The Dashboard uses local curriculum files for content
 
         setLoading(false);
       } catch (error) {
