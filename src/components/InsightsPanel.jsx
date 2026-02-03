@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, CheckCircle, Lightbulb, TrendingUp, BookOpen, RefreshCw, ChevronDown, ChevronUp, Target } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Lightbulb, TrendingUp, BookOpen, RefreshCw, ChevronDown, ChevronUp, Target, Sparkles, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { API_BASE_URL } from '../api/service';
+import { callGemini } from '../api/gemini';
 
 /**
  * InsightsPanel - Displays personalized improvement recommendations
@@ -20,6 +21,8 @@ const InsightsPanel = () => {
     const [error, setError] = useState(null);
     const [expandedTopic, setExpandedTopic] = useState(null);
     const [message, setMessage] = useState('');
+    const [aiFeedback, setAiFeedback] = useState({});
+    const [loadingFeedback, setLoadingFeedback] = useState({});
 
     useEffect(() => {
         fetchInsights();
@@ -77,6 +80,39 @@ const InsightsPanel = () => {
             }));
         } catch (err) {
             console.error('Error marking as reviewed:', err);
+        }
+    };
+
+    const generateAIFeedback = async (insight, index) => {
+        const feedbackKey = `${insight.topicId}-${index}`;
+        
+        // Don't regenerate if already have feedback
+        if (aiFeedback[feedbackKey]) return;
+        
+        setLoadingFeedback(prev => ({ ...prev, [feedbackKey]: true }));
+        
+        try {
+            const prompt = `You are an educational AI tutor. A student who is a ${learningStyle} learner has been struggling with "${insight.topicLabel}" in ${insight.courseName}. 
+            
+They got ${insight.wrongCount} questions wrong on this topic.
+
+Sample questions they struggled with:
+${insight.sampleQuestions?.slice(0, 3).map((q, i) => `${i + 1}. ${q}`).join('\n') || 'Questions not available'}
+
+Please provide:
+1. A brief, encouraging analysis of why students commonly struggle with this topic (2-3 sentences)
+2. Specific study strategies tailored for a ${learningStyle} learner (2-3 bullet points)
+3. One key concept they should focus on understanding first
+
+Keep your response concise, supportive, and actionable. Format with clear sections.`;
+
+            const response = await callGemini(prompt);
+            setAiFeedback(prev => ({ ...prev, [feedbackKey]: response }));
+        } catch (err) {
+            console.error('Error generating AI feedback:', err);
+            setAiFeedback(prev => ({ ...prev, [feedbackKey]: 'Unable to generate feedback at this time. Please try again later.' }));
+        } finally {
+            setLoadingFeedback(prev => ({ ...prev, [feedbackKey]: false }));
         }
     };
 
@@ -209,6 +245,46 @@ const InsightsPanel = () => {
                                 {/* Expanded Content */}
                                 {expandedTopic === index && (
                                     <div className="border-t border-current/20 p-4 bg-white/50">
+                                        {/* AI Feedback Section */}
+                                        <div className="mb-4">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <h4 className="font-semibold text-slate-800 flex items-center gap-2">
+                                                    <Sparkles className="w-4 h-4 text-purple-500" />
+                                                    AI Feedback on Your Performance
+                                                </h4>
+                                                {!aiFeedback[`${insight.topicId}-${index}`] && !loadingFeedback[`${insight.topicId}-${index}`] && (
+                                                    <button
+                                                        onClick={() => generateAIFeedback(insight, index)}
+                                                        className="text-sm px-3 py-1 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded-lg transition-colors flex items-center gap-1"
+                                                    >
+                                                        <Sparkles className="w-3 h-3" />
+                                                        Generate Feedback
+                                                    </button>
+                                                )}
+                                            </div>
+                                            
+                                            {loadingFeedback[`${insight.topicId}-${index}`] ? (
+                                                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                                                    <div className="flex items-center gap-3 text-purple-700">
+                                                        <Loader2 className="w-5 h-5 animate-spin" />
+                                                        <span className="text-sm">Analyzing your quiz performance...</span>
+                                                    </div>
+                                                </div>
+                                            ) : aiFeedback[`${insight.topicId}-${index}`] ? (
+                                                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                                                    <div className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
+                                                        {aiFeedback[`${insight.topicId}-${index}`]}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                                                    <p className="text-sm text-slate-500">
+                                                        Click "Generate Feedback" to get personalized AI insights on why you might be struggling with this topic and how to improve.
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
+
                                         {/* Improvement Tips */}
                                         <div className="mb-4">
                                             <h4 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
