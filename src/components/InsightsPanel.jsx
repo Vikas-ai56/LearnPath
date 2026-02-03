@@ -104,7 +104,8 @@ Please provide:
 2. Specific study strategies tailored for a ${learningStyle} learner (2-3 bullet points)
 3. One key concept they should focus on understanding first
 
-Keep your response concise, supportive, and actionable. Format with clear sections.`;
+Keep your response concise, supportive, and actionable. Format with clear sections. 
+It should be less than 10 lines`;
 
             const response = await callGemini(prompt);
             setAiFeedback(prev => ({ ...prev, [feedbackKey]: response }));
